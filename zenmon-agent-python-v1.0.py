@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ZenMon Agent v1.0 - Python Implementation
-Autor: ZenMon Development Team
+Autor: Cezary Kalinowski
 Opis: Agent do zbierania metryk systemowych i wysyłania do ZenMon API
 
 UC30: Zbieranie danych o zasobach systemu

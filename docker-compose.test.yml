@@ -1,0 +1,134 @@
+services:
+  # Ubuntu 22.04 LTS Agent
+  ubuntu-agent:
+    build:
+      context: .
+      dockerfile: docker-test/ubuntu/Dockerfile
+    container_name: zenmon_ubuntu_agent
+    hostname: ubuntu-test-host
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
+    environment:
+      - ZENMON_API_URL=http://host.docker.internal:8001/api
+      - HOST_ID=3
+      - HOST_NAME=ubuntu-test-host
+      - COLLECTION_INTERVAL=60
+      - LOG_LEVEL=DEBUG
+      - ZENMON_LOGIN=admin
+      - ZENMON_PASSWORD=admin123
+    volumes:
+      - ./zenmon-agent-python-v2.0.py:/app/zenmon_agent.py:ro
+      - ubuntu_logs:/var/log/zenmon
+    networks:
+      - zenmon_test
+    restart: unless-stopped
+    depends_on:
+      - network-check
+
+  # Rocky Linux 9 Agent (zamiast CentOS)
+  rocky-agent:
+    build:
+      context: .
+      dockerfile: docker-test/rocky/Dockerfile
+    container_name: zenmon_rocky_agent
+    hostname: rocky-test-host
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
+    environment:
+      - ZENMON_API_URL=http://host.docker.internal:8001/api
+      - HOST_ID=4
+      - HOST_NAME=rocky-test-host
+      - COLLECTION_INTERVAL=60
+      - LOG_LEVEL=DEBUG
+      - ZENMON_LOGIN=admin
+      - ZENMON_PASSWORD=admin123
+    volumes:
+      - ./zenmon-agent-python-v2.0.py:/app/zenmon_agent.py:ro
+      - rocky_logs:/var/log/zenmon
+    networks:
+      - zenmon_test
+    restart: unless-stopped
+    depends_on:
+      - network-check
+
+  # Alpine Linux Agent
+  alpine-agent:
+    build:
+      context: .
+      dockerfile: docker-test/alpine/Dockerfile
+    container_name: zenmon_alpine_agent
+    hostname: alpine-test-host
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
+    environment:
+      - ZENMON_API_URL=http://host.docker.internal:8001/api
+      - HOST_ID=2
+      - HOST_NAME=alpine-test-host
+      - COLLECTION_INTERVAL=60
+      - LOG_LEVEL=DEBUG
+      - ZENMON_LOGIN=admin
+      - ZENMON_PASSWORD=admin123
+    volumes:
+      - ./zenmon-agent-python-v2.0.py:/app/zenmon_agent.py:ro
+      - alpine_logs:/var/log/zenmon
+    networks:
+      - zenmon_test
+    restart: unless-stopped
+    depends_on:
+      - network-check
+
+  # Network connectivity test
+  network-check:
+    image: alpine:latest
+    container_name: zenmon_network_check
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
+    command: >
+      sh -c "
+        echo 'Testing network connectivity to ZenMon API...';
+        for i in 1 2 3 4 5; do
+          if wget -q --spider --timeout=5 http://host.docker.internal:8001/api/public/health; then
+            echo 'ZenMon API is reachable';
+            exit 0;
+          else
+            echo 'Attempt $$i failed, retrying in 5s...';
+            sleep 5;
+          fi;
+        done;
+        echo 'ERROR: Cannot reach ZenMon API';
+        exit 1;
+      "
+    networks:
+      - zenmon_test
+
+  # Load testing (optional)
+  load-test:
+    image: python:3.11-slim
+    container_name: zenmon_load_test
+    working_dir: /app
+    environment:
+      - ZENMON_API_URL=http://host.docker.internal:8001/api
+    command: >
+      sh -c "
+        pip install requests &&
+        echo 'Starting load test in 30 seconds...' &&
+        sleep 30 &&
+        python3 /app/load_test.py
+      "
+    volumes:
+      - ./docker-test/load_test.py:/app/load_test.py:ro
+    networks:
+      - zenmon_test
+    profiles:
+      - load-test
+    depends_on:
+      - network-check
+
+networks:
+  zenmon_test:
+    driver: bridge
+
+volumes:
+  ubuntu_logs:
+  rocky_logs:
+  alpine_logs:
