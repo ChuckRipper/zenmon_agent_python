@@ -38,6 +38,42 @@ class AgentConfig:
     collection_interval: int = 120
     timeout: int = 30
     token_refresh_margin: int = 300  # 5 minutes before expiration
+    enable_cpu_monitoring: bool = True
+    enable_ram_monitoring: bool = True
+    enable_disk_monitoring: bool = True
+    enable_network_monitoring: bool = True
+
+    def update_from_api(self, api_config: Dict[str, Any]) -> bool:
+        """
+        Aktualizuj konfigurację danymi z API
+        
+        Returns:
+            bool: True if any configuration changed
+        """
+        # Store old values
+        old_interval = self.collection_interval
+        old_cpu = self.enable_cpu_monitoring
+        old_ram = self.enable_ram_monitoring
+        old_disk = self.enable_disk_monitoring
+        old_network = self.enable_network_monitoring
+        
+        # Update values from API
+        self.collection_interval = api_config.get('data_collection_interval', 120)
+        self.enable_cpu_monitoring = api_config.get('enable_cpu_monitoring', True)
+        self.enable_ram_monitoring = api_config.get('enable_ram_monitoring', True)
+        self.enable_disk_monitoring = api_config.get('enable_disk_monitoring', True)
+        self.enable_network_monitoring = api_config.get('enable_network_monitoring', True)
+        
+        # Check if anything changed
+        config_changed = (
+            old_interval != self.collection_interval or
+            old_cpu != self.enable_cpu_monitoring or
+            old_ram != self.enable_ram_monitoring or
+            old_disk != self.enable_disk_monitoring or
+            old_network != self.enable_network_monitoring
+        )
+        
+        return config_changed
 
 @dataclass
 class AuthToken:
@@ -69,8 +105,12 @@ class AgentLogger:
         self.logger.setLevel(getattr(logging, log_level.upper()))
         
         # Ensure logs directory exists
-        log_file = os.path.join("logs", "zenmon_agent.log") 
-        os.makedirs("logs", exist_ok=True)
+        # Check if running in container (has supervisor logs)
+        if os.path.exists("/var/log/zenmon"):
+            log_file = "/var/log/zenmon/zenmon_agent.log"  # Container path
+        else:
+            log_file = os.path.join("logs", "zenmon_agent.log")  # Local development
+            os.makedirs("logs", exist_ok=True)
         
         # Console handler - NOW SHOWS DEBUG TOO
         console_handler = logging.StreamHandler(sys.stdout)
@@ -248,18 +288,20 @@ class SystemMetricsCollector:
     System performance metrics collector (UC30)
     """
     
-    def __init__(self, config: AgentConfig, logger: AgentLogger):
+    def __init__(self, config: AgentConfig, logger: AgentLogger, api_client=None):
         """
         Initialize metrics collector
         
         Args:
             config: Agent configuration
             logger: Logger instance
+            api_client: API client for configuration (optional)
         """
         self.config = config
         self.logger = logger
         self.hostname = platform.node()
-    
+        self.api_client = api_client
+
     def collect_cpu_metric(self) -> Optional[Dict[str, Any]]:
         """
         Collect CPU utilization percentage using high-frequency sampling
@@ -548,7 +590,25 @@ class SystemMetricsCollector:
                         
             else:
                 # Linux/Unix: Monitor key directories
-                directories = ['/root', '/var', '/tmp', '/home', '/usr']
+                # Try to get directories from API with fallback to defaults
+                fallback_directories = ['/root', '/var', '/tmp', '/home', '/usr']
+                
+                try:
+                    if self.api_client:
+                        api_directories = self.api_client.get_monitored_directories()
+                        if api_directories and len(api_directories) > 0:
+                            directories = api_directories
+                            self.logger.info(f"📁 Using API directories: {directories}")
+                        else:
+                            directories = fallback_directories
+                            self.logger.warning(f"📁 API returned empty list, using fallback: {directories}")
+                    else:
+                        directories = fallback_directories
+                        self.logger.warning(f"📁 No API client, using fallback: {directories}")
+                except Exception as e:
+                    directories = fallback_directories
+                    self.logger.error(f"📁 API error: {e}, using fallback: {directories}")
+                
                 base_metric_type_id = 4  # Storage starts from ID 4
                 
                 for i, directory in enumerate(directories):
@@ -639,63 +699,80 @@ class SystemMetricsCollector:
 
     def collect_all_metrics(self, health_check_url: str) -> List[Dict[str, Any]]:
         """
-        Collect all system metrics (UC30)
-        FIXED: Proper metric_type_id assignment and multiple storage metrics
+        Collect all system metrics (UC30) with configuration-based filtering
         
         Args:
             health_check_url: URL for network health check
             
         Returns:
-            List[Dict[str, Any]]: List of all collected metrics
+            List[Dict[str, Any]]: List of all collected metrics based on configuration
         """
         metrics = []
         collection_results = []
         
-        self.logger.debug("Starting comprehensive metrics collection...")
+        self.logger.debug("Starting metrics collection with configuration filtering...")
         
-        # CPU Metric
-        cpu_metric = self.collect_cpu_metric()
-        if cpu_metric:
-            metrics.append(cpu_metric)
-            collection_results.append("CPU: ✓")
+        # CPU Metric (ID: 1)
+        if self.config.enable_cpu_monitoring:
+            cpu_metric = self.collect_cpu_metric()
+            if cpu_metric:
+                metrics.append(cpu_metric)
+                collection_results.append("CPU: ✓")
+            else:
+                collection_results.append("CPU: ✗")
         else:
-            collection_results.append("CPU: ✗")
+            collection_results.append("CPU: disabled")
         
-        # Memory Metric
-        memory_metric = self.collect_memory_metric()
-        if memory_metric:
-            metrics.append(memory_metric)
-            collection_results.append("Memory: ✓")
+        # Memory Metric (ID: 2)
+        if self.config.enable_ram_monitoring:
+            memory_metric = self.collect_memory_metric()
+            if memory_metric:
+                metrics.append(memory_metric)
+                collection_results.append("RAM: ✓")
+            else:
+                collection_results.append("RAM: ✗")
         else:
-            collection_results.append("Memory: ✗")
+            collection_results.append("RAM: disabled")
         
-        # Network Metric (FIXED: now uses metric_type_id = 3)
-        network_metric = self.collect_network_metric(health_check_url)
-        if network_metric:
-            metrics.append(network_metric)
-            collection_results.append("Network: ✓")
+        # Network Metric (ID: 3)
+        if self.config.enable_network_monitoring:
+            network_metric = self.collect_network_metric(health_check_url)
+            if network_metric:
+                metrics.append(network_metric)
+                collection_results.append("Network: ✓")
+            else:
+                collection_results.append("Network: ✗")
         else:
-            collection_results.append("Network: ✗")
+            collection_results.append("Network: disabled")
         
-        # Storage Metrics (FIXED: now uses metric_type_id = 4+, multiple drives)
-        storage_metrics = self.collect_storage_metrics()
-        if storage_metrics:
-            metrics.extend(storage_metrics)
-            collection_results.append(f"Storage: ✓ ({len(storage_metrics)} drives)")
+        # Storage Metrics (ID: 4-53)
+        if self.config.enable_disk_monitoring:
+            storage_metrics = self.collect_storage_metrics()
+            if storage_metrics:
+                metrics.extend(storage_metrics)
+                collection_results.append(f"Storage: ✓ ({len(storage_metrics)} drives)")
+            else:
+                collection_results.append("Storage: ✗")
         else:
-            collection_results.append("Storage: ✗")
+            collection_results.append("Storage: disabled")
+        
+        enabled_count = sum([
+            self.config.enable_cpu_monitoring,
+            self.config.enable_ram_monitoring, 
+            self.config.enable_network_monitoring,
+            self.config.enable_disk_monitoring
+        ])
         
         success_count = len(metrics)
-        expected_count = 3 + len(storage_metrics) if storage_metrics else 4  # CPU + RAM + Network + Storage(s)
         
-        self.logger.debug(f"Metrics collection summary: {success_count} metrics collected - {', '.join(collection_results)}")
+        self.logger.debug(f"Metrics collection summary: {success_count} metrics collected from {enabled_count} enabled types - {', '.join(collection_results)}")
         
-        if success_count == 0:
+        if enabled_count == 0:
+            self.logger.warning("All monitoring types are disabled")
+        elif success_count == 0:
             self.logger.warning("No metrics collected successfully")
-        elif success_count < expected_count:
-            self.logger.warning(f"Partial metrics collection: {success_count} metrics collected")
         else:
-            self.logger.info(f"Full metrics collection successful: {success_count} metrics")
+            self.logger.info(f"Metrics collection: {success_count} metrics from {enabled_count} enabled monitoring types")
         
         return metrics
 
@@ -883,6 +960,63 @@ class AuthenticatedApiClient:
             self.logger.debug(f"Exception details: {type(e).__name__}: {str(e)}")
             return False
 
+    def get_agent_configuration(self) -> Optional[Dict[str, Any]]:
+        """
+        Pobierz konfigurację agenta z API
+        """
+        if not self.token_manager.refresh_token_if_needed():
+            self.logger.error("Token refresh failed, cannot get configuration")
+            return None
+            
+        try:
+            url = f"{self.config.api_url}/agent/configuration/{self.config.host_id}"
+            
+            response = self.token_manager.session.get(url, timeout=self.config.timeout)
+            
+            if response.status_code == 200:
+                config_data = response.json()
+                self.logger.info(f"✅ Agent configuration loaded from API")
+                return config_data
+            else:
+                self.logger.warning(f"⚠️ Failed to load configuration: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error loading agent configuration: {e}")
+            return None
+    
+    def get_monitored_directories(self) -> List[str]:
+        """
+        Pobierz listę katalogów do monitorowania (Linux)
+        """
+        if not self.token_manager.refresh_token_if_needed():
+            self.logger.error("Token refresh failed, cannot get directories")
+            return ['/root', '/var', '/tmp', '/home', '/usr']  # fallback
+            
+        try:
+            url = f"{self.config.api_url}/agent/monitored-directories/{self.config.host_id}"
+            
+            response = self.token_manager.session.get(url, timeout=self.config.timeout)
+            
+            if response.status_code == 200:
+                data = response.json()
+                directories = data.get('directories', [])
+                fallback_used = data.get('directory_info', {}).get('fallback_used', False)
+                
+                if fallback_used:
+                    self.logger.info(f"📁 Using fallback directories: {directories}")
+                else:
+                    self.logger.info(f"📁 Loaded {len(directories)} configured directories")
+                
+                return directories
+            else:
+                self.logger.warning(f"⚠️ Failed to load directories: {response.status_code}")
+                return ['/root', '/var', '/tmp', '/home', '/usr']  # fallback
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error loading monitored directories: {e}")
+            return ['/root', '/var', '/tmp', '/home', '/usr']  # fallback
+
 # endregion
 
 # region Main Agent Class
@@ -902,11 +1036,13 @@ class ZenMonAgent:
         self.config = config
         self.logger = AgentLogger()
         self.token_manager = TokenManager(config, self.logger)
-        self.metrics_collector = SystemMetricsCollector(config, self.logger)
         self.api_client = AuthenticatedApiClient(config, self.token_manager, self.logger)
+        self.metrics_collector = SystemMetricsCollector(config, self.logger, self.api_client)
         self.running = False
         self.last_heartbeat = datetime.now() - timedelta(minutes=10)  # Force first heartbeat
         self.heartbeat_interval = timedelta(minutes=5)  # 5 minute heartbeat
+        self.last_config_refresh = datetime.now() - timedelta(minutes=15)  # Force first config refresh
+        self.config_refresh_interval = timedelta(minutes=10)  # 10 minute config refresh
         
         signal.signal(signal.SIGINT, self._shutdown_handler)
         signal.signal(signal.SIGTERM, self._shutdown_handler)
@@ -934,6 +1070,14 @@ class ZenMonAgent:
             return
         
         self.running = True
+        api_config = self.api_client.get_agent_configuration()
+        if api_config:
+            config_changed = self.config.update_from_api(api_config)
+            if config_changed:
+                self.logger.info(f"Collection interval updated to: {self.config.collection_interval}s")
+        else:
+            self.logger.warning("Using default configuration (API config failed to load)")
+        
         self.logger.info("Agent started successfully - monitoring system metrics")
         
         while self.running:
@@ -942,9 +1086,13 @@ class ZenMonAgent:
                 if self._should_send_heartbeat():
                     self._send_heartbeat()
                 
+                # Check if config refresh is needed (every 10 minutes)
+                if self._should_refresh_config():
+                    self._refresh_config_if_needed()
+                        
                 # Collect and send metrics
                 self._collect_and_send_metrics()
-                
+                        
                 # Wait for next cycle
                 self._wait_for_next_cycle()
                 
@@ -1026,6 +1174,38 @@ class ZenMonAgent:
             self.logger.debug("Sleep interrupted by shutdown signal")
         else:
             self.logger.debug(f"Wait completed - Total sleep time: {total_slept}s")
+
+    def _should_refresh_config(self) -> bool:
+            """
+            Check if configuration should be refreshed based on time interval
+            
+            Returns:
+                bool: True if config should be refreshed
+            """
+            time_since_last = datetime.now() - self.last_config_refresh
+            return time_since_last >= self.config_refresh_interval
+        
+    def _refresh_config_if_needed(self):
+        """
+        Refresh agent configuration from API if needed
+        """
+        try:
+            self.logger.debug("Checking if config refresh is needed")
+            api_config = self.api_client.get_agent_configuration()
+            
+            if api_config:
+                config_changed = self.config.update_from_api(api_config)
+                self.last_config_refresh = datetime.now()
+                
+                if config_changed:
+                    self.logger.info(f"Configuration updated: interval={self.config.collection_interval}s, CPU={self.config.enable_cpu_monitoring}, RAM={self.config.enable_ram_monitoring}, Network={self.config.enable_network_monitoring}, Disk={self.config.enable_disk_monitoring}")
+                else:
+                    self.logger.debug("Configuration checked - no changes")
+            else:
+                self.logger.warning("Config refresh failed - keeping current settings")
+                
+        except Exception as e:
+            self.logger.error(f"Config refresh error: {str(e)}")
 
 # endregion
 

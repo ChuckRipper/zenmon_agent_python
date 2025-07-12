@@ -42,3 +42,7 @@ Desktop.ini
 
 
 zenmon_agent.log*
+
+# Python
+*.pyc
+__pycache__/*
