@@ -1,26 +1,58 @@
-# ZenMon Agent
+# ZenMon Agent - Python
 
-**Minimalistyczny agent monitoringu systemowego** - alternatywa dla Zabbix/Nagios
+**ZenMon Agent** to lekka aplikacja w języku Python, która zbiera metryki systemowe i wysyła je do aplikacji webowej ZenMon. Agent jest częścią systemu monitoringu ZenMon.
 
-ZenMon Agent to lekki, napisany w Pythonie agent do zbierania metryk systemowych zgodnie z filozofią "Zen" - prostota i przystępność dla każdego użytkownika.
+## 📋 Opis
 
-## 🎯 Funkcjonalności
+Agent automatycznie wykrywa system operacyjny, zbiera kluczowe metryki (CPU, RAM, dysk, sieć) oraz monitoruje wskazane katalogi. Dane są wysyłane do API ZenMon przy użyciu uwierzytelniania Bearer token.
 
-Agent zbiera następujące metryki zgodnie z **UC30**:
-- **CPU Usage** (% wykorzystania procesora)  
-- **Memory Usage** (% wykorzystania pamięci RAM)
-- **Disk Usage** (% wykorzystania przestrzeni dyskowej)
-- **Network Response Time** (czas odpowiedzi sieci w ms)
-- **Katalogi** (zajętość wybranych katalogów systemowych)
+### Obsługiwane systemy operacyjne
+- **Windows** (testowane na Windows 10/11)
+- **Linux** (Ubuntu, CentOS, Debian, RHEL)
+- **macOS** (podstawowe wsparcie)
 
-## 📋 Wymagania
+## 🛠️ Użyte Technologie
 
 - **Python 3.8+**
-- **pip** (menedżer pakietów Python)
-- **Biblioteki:** `requests`, `psutil`
-- **ZenMon API** uruchomiona i dostępna
+- **requests** - komunikacja HTTP z API
+- **psutil** - zbieranie metryk systemowych
+- **logging** - rejestrowanie zdarzeń
+- **json** - serializacja danych
+- **dataclasses** - struktury danych
 
-## 🚀 Szybka instalacja
+## 📁 Struktura Projektu
+
+```
+zenmon_agent_python/
+├── zenmon-agent-python-v1.0.py        # Agent podstawowy (v1.0)
+├── zenmon-agent-python-v2.0.py        # Agent produkcyjny (v2.0)
+├── docker-compose.test.yml             # Kontenery testowe Linux
+├── docker-test/                        # Konfiguracje Docker
+│   ├── alpine/
+│   │   ├── Dockerfile                  # Alpine Linux container
+│   │   └── supervisord.conf            # Supervisor config dla Alpine
+│   ├── ubuntu/
+│   │   ├── Dockerfile                  # Ubuntu 22.04 container
+│   │   └── supervisord.conf            # Supervisor config dla Ubuntu
+│   ├── rocky/
+│   │   ├── Dockerfile                  # Rocky Linux 9 container
+│   │   └── supervisord.conf            # Supervisor config dla Rocky
+│   ├── health_server.py                # Health check server dla kontenerów
+│   └── load_test.py                    # Load testing script
+├── logs/                               # Katalog logów (git ignored)
+│   └── .gitkeep                        # Zachowanie struktury w git
+├── LICENSE.txt                         # Licencja MIT
+├── zenmon_agent.log                    # Logi agenta (generowane)
+└── README.md
+```
+
+## 🚀 Instrukcja Instalacji i Uruchomienia
+
+### Wymagania
+- **Python 3.8+**
+- **pip** (menedżer pakietów Python)
+- **PowerShell** (Windows) lub Terminal (Linux/macOS)
+- **Działająca aplikacja ZenMon Laravel**
 
 ### 1. Klonowanie repozytorium
 ```bash
@@ -28,74 +60,214 @@ git clone https://github.com/ChuckRipper/zenmon_agent_python.git
 cd zenmon_agent_python
 ```
 
-### 2. Instalacja zależności
+### 2. Instalacja zależności Python
 ```bash
-pip install requests psutil
+# Windows PowerShell
+pip install psutil requests
+
+# Linux/macOS
+pip3 install psutil requests
 ```
 
-### 3. Uruchomienie agenta
+**Uwaga**: Projekt nie zawiera pliku `requirements.txt` - instaluj zależności bezpośrednio jak powyżej.
+
+### 3. Konfiguracja agenta
+
+Edytuj parametry w pliku `zenmon-agent-python-v2.0.py`:
+
+```python
+# Konfiguracja agenta
+API_URL = "http://localhost:8001/api"  # URL aplikacji Laravel
+HOST_ID = 1                            # ID hosta w bazie danych
+COLLECTION_INTERVAL = 120              # Interwał zbierania (sekundy)
+```
+
+### 4. Uruchomienie agenta
+
+#### Windows (PowerShell)
+```powershell
+# Przejdź do katalogu projektu
+cd zenmon_agent_python
+
+# Uruchom agenta (Host ID = 1)
+python zenmon-agent-python-v2.0.py
+```
+
+#### Linux/macOS
 ```bash
-python zenmon-agent-python.py http://localhost:8001/api 1
-```
+# Uruchom agenta
+python3 zenmon-agent-python-v2.0.py
 
-**Parametry:**
-- `http://localhost:8001/api` - URL do ZenMon API
-- `1` - ID hosta w systemie ZenMon
-
-## 📁 Struktura projektu
-
-```
-zenmon_agent_python/
-├── zenmon-agent-python.py      # Główny skrypt agenta
-├── logs/                       # Katalog z logami (w .gitignore)
-│   └── zenmon_agent.log        # Logi działania agenta
-├── docker-test/                # Środowisko testowe Docker
-│   ├── health_server.py        # Serwer health check
-│   ├── load_test.py            # Skrypt testów obciążeniowych
-│   ├── ubuntu/                 # Ubuntu 22.04 container
-│   ├── rocky/                  # Rocky Linux 9 container
-│   └── alpine/                 # Alpine Linux container
-├── docker-compose.test.yml     # Orchestracja testów
-├── .gitignore                  # Wykluczenia Git
-└── README.md                   # Ta dokumentacja
+# Lub jako daemon (w tle)
+nohup python3 zenmon-agent-python-v2.0.py &
 ```
 
 ## ⚙️ Konfiguracja
 
-Agent przyjmuje parametry przez argumenty wiersza poleceń:
-
-```bash
-python zenmon-agent-python.py <API_URL> <HOST_ID> [opcje]
+### Parametry konfiguracyjne
+```python
+@dataclass
+class AgentConfig:
+    api_url: str                    # URL API ZenMon
+    host_id: int                    # ID hosta w bazie
+    collection_interval: int = 120  # Interwał zbierania (sek)
+    max_retries: int = 3            # Maksymalne próby wysyłki
+    retry_delay: int = 10           # Opóźnienie między próbami
+    timeout: int = 30               # Timeout HTTP
 ```
 
-### Zmienne środowiskowe (opcjonalne):
-- `COLLECTION_INTERVAL` - Interwał zbierania metryk w sekundach (domyślnie: 120)
-- `LOG_LEVEL` - Poziom logowania (DEBUG, INFO, WARNING, ERROR)
-- `ZENMON_AGENT_VERSION` - Wersja agenta (domyślnie: 1.0.0)
+### Monitorowane katalogi (przykłady)
 
-### Przykłady uruchomienia:
-```bash
-# Podstawowe uruchomienie
-python zenmon-agent-python.py http://localhost:8001/api 1
-
-# Z custom interwałem (60 sekund)
-COLLECTION_INTERVAL=60 python zenmon-agent-python.py http://localhost:8001/api 1
-
-# Z debugowaniem
-LOG_LEVEL=DEBUG python zenmon-agent-python.py http://localhost:8001/api 1
+#### Windows
+```python
+MONITORED_DIRECTORIES = [
+    "C:\\",                    # Katalog główny
+    "C:\\Windows\\System32",   # System Windows
+    "C:\\Program Files",       # Aplikacje
+    "C:\\Users\\Public"        # Katalog użytkowników
+]
 ```
 
-## 🔧 Instalacja jako usługa systemowa
-
-### Ubuntu/Debian (systemd):
-
-1. **Utwórz plik usługi:**
-```bash
-sudo nano /etc/systemd/system/zenmon-agent.service
+#### Linux
+```python
+MONITORED_DIRECTORIES = [
+    "/",                       # Root filesystem
+    "/var/log",               # Logi systemowe
+    "/tmp",                   # Pliki tymczasowe
+    "/home",                  # Katalogi użytkowników
+    "/var/www"                # Serwer web (opcjonalnie)
+]
 ```
 
-2. **Zawartość pliku:**
-```ini
+## 📊 Zbierane Metryki
+
+### Metryki systemowe
+- **CPU Usage (%)** - wykorzystanie procesora
+- **Memory Usage (%)** - wykorzystanie pamięci RAM
+- **Disk Usage (%)** - wykorzystanie dysku (partycja główna)
+- **Network Latency (ms)** - czas odpowiedzi do serwera API
+
+### Metryki katalogów
+- **Rozmiar katalogu (bytes)** - całkowity rozmiar plików
+- **Liczba plików** - ilość plików w katalogu
+- **Timestamp** - czas pomiaru
+- **Dodatkowe informacje** - metadane (rozmiar w MB, itp.)
+
+### Informacje o systemie
+- **System operacyjny** - Windows/Linux/macOS + wersja
+- **Hostname** - nazwa komputera
+- **IP Address** - adres IP (lokalny)
+- **Wersja agenta** - identyfikacja wersji
+
+## 🔄 Workflow Agenta
+
+```
+1. Start agenta
+2. Wykrycie systemu operacyjnego
+3. Uwierzytelnienie w API (POST /api/login)
+4. Otrzymanie Bearer token
+5. PĘTLA:
+   a. Zbieranie metryk systemowych
+   b. Skanowanie katalogów
+   c. Wysyłanie metryk (POST /api/agent/metrics/batch)
+   d. Wysyłanie heartbeat (POST /api/agent/heartbeat/{host_id})
+   e. Oczekiwanie (COLLECTION_INTERVAL sekund)
+6. Obsługa błędów i retry
+```
+
+## 🧪 Testowanie z Kontenerami Docker
+
+Agent można przetestować na różnych dystrybucjach Linux używając kontenerów Docker:
+
+### Uruchomienie środowisk testowych
+```bash
+# Wszystkie kontenery testowe
+docker-compose -f docker-compose.test.yml up -d
+
+# Tylko Ubuntu
+docker-compose -f docker-compose.test.yml up ubuntu-agent
+
+# Tylko Rocky Linux
+docker-compose -f docker-compose.test.yml up rocky-agent
+
+# Tylko Alpine
+docker-compose -f docker-compose.test.yml up alpine-agent
+```
+
+### Testowanie w kontenerach
+```bash
+# Wejście do kontenera Ubuntu
+docker exec -it zenmon_ubuntu_agent bash
+
+# Sprawdzenie logów
+docker-compose -f docker-compose.test.yml logs ubuntu-agent
+
+# Sprawdzenie statusu
+docker-compose -f docker-compose.test.yml ps
+```
+
+## 📝 Logi i Debugging
+
+### Lokalizacja logów
+- **Windows**: `zenmon_agent.log` (katalog agenta)
+- **Linux**: `zenmon_agent.log` lub `/var/log/zenmon_agent.log`
+
+### Poziomy logowania
+- **DEBUG** - szczegółowe informacje diagnostyczne
+- **INFO** - informacje o normalnej pracy
+- **WARNING** - ostrzeżenia (problemy z komunikacją)
+- **ERROR** - błędy krytyczne
+
+### Przykłady logów
+```
+2025-01-15 10:30:15 - ZenMonAgent - INFO - Agent started for host ID 1
+2025-01-15 10:30:16 - ZenMonAgent - INFO - System detected: Windows 10
+2025-01-15 10:30:17 - ZenMonAgent - INFO - Authentication successful, token received
+2025-01-15 10:30:18 - ZenMonAgent - INFO - Collected metrics: CPU=25.3%, RAM=64.1%, Disk=45.7%
+2025-01-15 10:30:19 - ZenMonAgent - INFO - Metrics submitted successfully (4 metrics)
+2025-01-15 10:30:20 - ZenMonAgent - INFO - Heartbeat sent successfully
+```
+
+## 🔧 Rozwiązywanie Problemów
+
+### Problem: Agent nie może się połączyć z API
+```bash
+# Sprawdź dostępność API
+curl http://localhost:8001/api/public/health
+
+# Sprawdź logi agenta
+tail -f zenmon_agent.log
+
+# Sprawdź konfigurację sieci
+ping localhost
+```
+
+### Problem: Błędy uwierzytelniania
+```python
+# Sprawdź konfigurację w kodzie agenta
+API_URL = "http://localhost:8001/api"  # Poprawny URL?
+# Sprawdź czy użytkownik istnieje w bazie Laravel
+```
+
+### Problem: Agent nie zbiera metryk
+```bash
+# Windows - sprawdź uprawnienia
+# Linux - sprawdź czy psutil działa
+python3 -c "import psutil; print(psutil.cpu_percent())"
+```
+
+## 🚀 Uruchomienie jako Usługa
+
+### Windows (Service)
+```powershell
+# Użyj NSSM (Non-Sucking Service Manager)
+nssm install ZenMonAgent "python" "C:\path\to\zenmon-agent-python-v2.0.py"
+nssm start ZenMonAgent
+```
+
+### Linux (systemd)
+```bash
+# Utwórz plik /etc/systemd/system/zenmon-agent.service
 [Unit]
 Description=ZenMon Agent
 After=network.target
@@ -103,222 +275,91 @@ After=network.target
 [Service]
 Type=simple
 User=zenmon
-WorkingDirectory=/opt/zenmon
-ExecStart=/usr/bin/python3 /opt/zenmon/zenmon-agent-python.py http://localhost:8001/api 1
+WorkingDirectory=/opt/zenmon_agent
+ExecStart=/usr/bin/python3 /opt/zenmon_agent/zenmon-agent-python-v2.0.py
 Restart=always
-RestartSec=10
-Environment=COLLECTION_INTERVAL=120
-Environment=LOG_LEVEL=INFO
 
 [Install]
 WantedBy=multi-user.target
-```
 
-3. **Aktywacja usługi:**
-```bash
-sudo systemctl daemon-reload
+# Włącz usługę
 sudo systemctl enable zenmon-agent
 sudo systemctl start zenmon-agent
-sudo systemctl status zenmon-agent
 ```
 
-## 🐳 Testowanie z Docker
+## 🔒 Bezpieczeństwo
 
-Projekt zawiera kompletne środowisko testowe z kontenerami różnych dystrybucji Linux.
+- **Token Authentication** - Bearer token z API Laravel
+- **HTTPS** - użyj HTTPS w produkcji
+- **Uprawnienia** - uruchom agenta z ograniczonymi uprawnieniami
+- **Firewall** - otwórz tylko potrzebne porty (8001 HTTP/HTTPS)
 
-### Szybki start testów
-```bash
-# Uruchomienie wszystkich agentów testowych
-docker-compose -f docker-compose.test.yml up -d
+## 📈 Monitoring Agenta
 
-# Sprawdzenie statusu
-docker-compose -f docker-compose.test.yml ps
+### Sprawdzenie statusu
+```python
+# Via API ZenMon
+GET /api/hosts/{host_id}/status
 
-# Logi agentów
-docker-compose -f docker-compose.test.yml logs -f
-
-# Zatrzymanie
-docker-compose -f docker-compose.test.yml down
+# Via logi
+tail -f zenmon_agent.log | grep "Heartbeat sent"
 ```
 
-### Dostępne kontenery testowe:
-- **Ubuntu 22.04 LTS** - HOST_ID=10
-- **Rocky Linux 9** - HOST_ID=11  
-- **Alpine Linux 3.18** - HOST_ID=12
+### Metryki wydajności agenta
+- **Czas zbierania metryk** - <5 sekund
+- **Czas wysyłania danych** - <10 sekund
+- **Zużycie CPU** - <5%
+- **Zużycie RAM** - <50MB
 
-### Health check endpoints:
-Każdy kontener udostępnia HTTP endpoint do monitorowania:
-- `/health` - Status agenta z metrykami systemowymi
-- `/info` - Informacje o agencie i konfiguracji
+## 🤝 Rozwój
 
-### Testy obciążeniowe:
-```bash
-# Uruchomienie z load testem
-docker-compose -f docker-compose.test.yml --profile load-test up -d
+### Dodanie nowej metryki
+1. Dodaj funkcję zbierającą metrykę
+2. Zaktualizuj `collect_system_metrics()`
+3. Przetestuj z różnymi systemami operacyjnymi
+4. Dodaj obsługę błędów
 
-# Tylko load test (generuje metryki dla HOST_ID 13-17)
-docker-compose -f docker-compose.test.yml up load-test
+### Konwencje kodu Python
+```python
+# Regiony (jak w C#)
+#region Fields
+# zmienne globalne
+#endregion
+
+#region Classes  
+# definicje klas
+#endregion
+
+#region Methods
+# funkcje
+#endregion
+
+# Dokumentacja metod
+def example_method(param1: str, param2: int = 0) -> str:
+    """
+    Przykładowa metoda
+    
+    Args:
+        param1: Pierwszy parametr
+        param2: Drugi parametr (domyślnie 0)
+        
+    Returns:
+        Wynik operacji
+    """
+    return f"Result: {param1} + {param2}"
 ```
 
-### Debugowanie kontenerów:
-```bash
-# Wejście do kontenera Ubuntu
-docker exec -it zenmon_ubuntu_agent bash
+## 📞 Wsparcie
 
-# Wejście do kontenera Rocky Linux
-docker exec -it zenmon_rocky_agent bash
-
-# Sprawdzenie procesów w kontenerze
-docker exec -it zenmon_ubuntu_agent supervisorctl status
-
-# Logi agenta z kontenera
-docker exec -it zenmon_ubuntu_agent tail -f /var/log/zenmon/agent.log
-```
-
-## 📡 API Endpoints (Agent → ZenMon)
-
-Agent komunikuje się z następującymi endpointami ZenMon API:
-
-### Wysyłanie metryk:
-```http
-POST /api/agent/metrics
-Content-Type: application/json
-
-{
-  "metrics": [
-    {
-      "host_id": 1,
-      "metric_name": "CPU Usage",
-      "unit": "%",
-      "value": 45.2,
-      "timestamp": "2025-01-15T10:30:00Z"
-    }
-  ]
-}
-```
-
-### Health check ZenMon API:
-```http
-GET /api/public/health
-```
-
-### Rejestracja agenta:
-```http
-POST /api/agent/register
-Content-Type: application/json
-
-{
-  "ip_address": "192.168.1.10",
-  "hostname": "server-01",
-  "operating_system": "Ubuntu 22.04",
-  "agent_version": "1.0.0"
-}
-```
-
-## 📊 Logi i monitoring
-
-### Lokalizacja logów:
-- **Plik logów:** `logs/zenmon_agent.log`
-- **Format:** `[TIMESTAMP] - LEVEL - MESSAGE`
-- **Rotacja:** Automatyczna (nie przekroczy 50MB)
-
-### Przykład logów:
-```
-2025-01-15 10:30:15 - INFO - ZenMon Agent started (Host ID: 1)
-2025-01-15 10:30:15 - INFO - API URL: http://localhost:8001/api
-2025-01-15 10:30:15 - INFO - Collection interval: 120 seconds
-2025-01-15 10:32:15 - INFO - Cycle completed successfully (4 metrics)
-2025-01-15 10:34:15 - ERROR - Failed to send metrics: Connection timeout
-```
-
-### Poziomy logowania:
-- **DEBUG** - Szczegółowe informacje diagnostyczne
-- **INFO** - Standardowe operacje agenta  
-- **WARNING** - Ostrzeżenia nie blokujące działania
-- **ERROR** - Błędy wymagające uwagi
-
-## 🔍 Rozwiązywanie problemów
-
-### Agent nie może połączyć się z API
-```bash
-# Sprawdź dostępność API
-curl http://localhost:8001/api/public/health
-
-# Sprawdź konfigurację sieci
-ping localhost
-
-# Sprawdź logi agenta
-tail -f logs/zenmon_agent.log
-```
-
-### Wysokie zużycie CPU/pamięci
-```bash
-# Zwiększ interwał zbierania metryk
-COLLECTION_INTERVAL=300 python zenmon-agent-python.py http://localhost:8001/api 1
-
-# Sprawdź logi pod kątem błędów
-grep ERROR logs/zenmon_agent.log
-```
-
-### Agent nie wysyła metryk katalogów
-- Sprawdź uprawnienia do katalogów systemowych
-- Uruchom agenta z uprawnieniami sudo (jeśli potrzebne)
-- Sprawdź czy katalogi istnieją w systemie
-
-### Problemy z kontenerami Docker
-```bash
-# Sprawdź czy ZenMon API jest dostępna z kontenera
-docker-compose -f docker-compose.test.yml logs network-check
-
-# Rebuild obrazów po zmianach
-docker-compose -f docker-compose.test.yml build --no-cache
-
-# Sprawdź health check kontenerów
-docker inspect zenmon_ubuntu_agent | jq '.[0].State.Health'
-```
-
-## 📈 Wydajność i ograniczenia
-
-### Zalecane parametry:
-- **Interwał zbierania:** 60-300 sekund (domyślnie: 120s)
-- **RAM:** ~10-20MB podczas działania
-- **CPU:** <1% przy normalnej pracy
-- **Sieć:** ~1-5KB na cykl zbierania
-
-### Ograniczenia:
-- Agent musi mieć dostęp do katalogów systemowych
-- Wymaga połączenia sieciowego z ZenMon API
-- Niektóre metryki mogą wymagać uprawnień root
-
-## 🤝 Wkład w rozwój
-
-1. Fork repozytorium
-2. Utwórz branch dla nowej funkcjonalności
-3. Dodaj testy do nowej funkcjonalności  
-4. Wyślij Pull Request
-
-### Struktura kodu:
-- **Kod zgodny z PEP 8**
-- **Dokumentacja przez docstrings** (format C#)
-- **Regiony organizujące kod** (#region/#endregion)
-- **Obsługa błędów** we wszystkich operacjach
-
-## 📄 Licencja
-
-MIT License - zobacz plik `LICENSE` dla szczegółów.
-
-## 🔗 Linki
-
-### Repozytoria GitHub:
-- **ZenMon Agent (Python):** https://github.com/ChuckRipper/zenmon_agent_python
-- **ZenMon Web Application (Laravel):** https://github.com/ChuckRipper/zenmon-laravel
-
-### Lokalne endpointy (development):
-- **ZenMon Web Application:** http://localhost:8001
-- **ZenMon API:** http://localhost:8001/api  
-- **API Health Check:** http://localhost:8001/api/public/health
-- **Swagger Documentation:** http://localhost:8001/api/documentation
+W przypadku problemów:
+1. Sprawdź logi: `zenmon_agent.log`
+2. Sprawdź połączenie: `curl API_URL/public/health`
+3. Sprawdź konfigurację sieci
+4. Przetestuj w kontenerze Docker
 
 ---
 
-**ZenMon** - *Monitoring w stylu Zen: prosty, minimalistyczny, skuteczny* 🧘‍♂️
+**Autor**: Cezary Kalinowski i Przemysław Jancewicz
+**Wersja**: 2.0  
+**Python**: 3.8+  
+**Kompatybilność**: Windows, Linux, macOS

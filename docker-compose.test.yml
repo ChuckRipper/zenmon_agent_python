@@ -14,8 +14,8 @@ services:
       - HOST_NAME=ubuntu-test-host
       - COLLECTION_INTERVAL=60
       - LOG_LEVEL=DEBUG
-      - ZENMON_LOGIN=admin
-      - ZENMON_PASSWORD=admin123
+      - ZENMON_LOGIN=zenmon_agent
+      - ZENMON_PASSWORD=zenmon_agent123
     volumes:
       - ./zenmon-agent-python-v2.0.py:/app/zenmon_agent.py:ro
       - ubuntu_logs:/var/log/zenmon
@@ -40,8 +40,8 @@ services:
       - HOST_NAME=rocky-test-host
       - COLLECTION_INTERVAL=60
       - LOG_LEVEL=DEBUG
-      - ZENMON_LOGIN=admin
-      - ZENMON_PASSWORD=admin123
+      - ZENMON_LOGIN=zenmon_agent
+      - ZENMON_PASSWORD=zenmon_agent123
     volumes:
       - ./zenmon-agent-python-v2.0.py:/app/zenmon_agent.py:ro
       - rocky_logs:/var/log/zenmon
@@ -66,8 +66,8 @@ services:
       - HOST_NAME=alpine-test-host
       - COLLECTION_INTERVAL=60
       - LOG_LEVEL=DEBUG
-      - ZENMON_LOGIN=admin
-      - ZENMON_PASSWORD=admin123
+      - ZENMON_LOGIN=zenmon_agent
+      - ZENMON_PASSWORD=zenmon_agent123
     volumes:
       - ./zenmon-agent-python-v2.0.py:/app/zenmon_agent.py:ro
       - alpine_logs:/var/log/zenmon
