@@ -40,9 +40,8 @@ zenmon_agent_python/
 │   ├── health_server.py                # Health check server dla kontenerów
 │   └── load_test.py                    # Load testing script
 ├── logs/                               # Katalog logów (git ignored)
-│   └── .gitkeep                        # Zachowanie struktury w git
+│   └── zenmon_agent.log                # Logi agenta (generowane)
 ├── LICENSE.txt                         # Licencja MIT
-├── zenmon_agent.log                    # Logi agenta (generowane)
 └── README.md
 ```
 
@@ -71,72 +70,75 @@ pip3 install psutil requests
 
 **Uwaga**: Projekt nie zawiera pliku `requirements.txt` - instaluj zależności bezpośrednio jak powyżej.
 
-### 3. Konfiguracja agenta
+### 3. Sprawdzenie Host ID w bazie danych
 
-Edytuj parametry w pliku `zenmon-agent-python-v2.0.py`:
+Przed uruchomieniem agenta sprawdź dostępne Host ID w bazie:
 
-```python
-# Konfiguracja agenta
-API_URL = "http://localhost:8001/api"  # URL aplikacji Laravel
-HOST_ID = 1                            # ID hosta w bazie danych
-COLLECTION_INTERVAL = 120              # Interwał zbierania (sekundy)
+```sql
+-- Sprawdź dostępne hosty w DBeaver/MySQL Workbench
+SELECT host_id, host_name, ip_address, operating_system 
+FROM hosts 
+ORDER BY host_id;
 ```
 
+**Typowe Host ID:**
+- `1` - Lokalny Windows (127.0.0.1)
+- `2` - Ubuntu container (172.19.0.2)
+- `3` - Alpine container (172.19.0.3)  
+- `4` - Rocky container (172.19.0.4)
+
 ### 4. Uruchomienie agenta
+
+**Składnia argumentów:**
+```
+python zenmon-agent-python-v2.0.py <API_URL> <HOST_ID> <LOGIN> <PASSWORD>
+```
+
+**Gdzie:**
+- `API_URL`: URL aplikacji Laravel (np. http://localhost:8001/api)
+- `HOST_ID`: ID hosta z tabeli `hosts` w bazie danych
+- `LOGIN`: zenmon_agent (konto agenta)
+- `PASSWORD`: zenmon_agent123 (hasło agenta)
 
 #### Windows (PowerShell)
 ```powershell
 # Przejdź do katalogu projektu
 cd zenmon_agent_python
 
-# Uruchom agenta (Host ID = 1)
-python zenmon-agent-python-v2.0.py
+# Uruchom agenta z 4 argumentami (Host ID = 1 dla Windows)
+python zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123
 ```
 
 #### Linux/macOS
 ```bash
-# Uruchom agenta
-python3 zenmon-agent-python-v2.0.py
+# Uruchom agenta z 4 argumentami
+python3 zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123
 
 # Lub jako daemon (w tle)
-nohup python3 zenmon-agent-python-v2.0.py &
+nohup python3 zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123 &
 ```
 
 ## ⚙️ Konfiguracja
 
-### Parametry konfiguracyjne
-```python
-@dataclass
-class AgentConfig:
-    api_url: str                    # URL API ZenMon
-    host_id: int                    # ID hosta w bazie
-    collection_interval: int = 120  # Interwał zbierania (sek)
-    max_retries: int = 3            # Maksymalne próby wysyłki
-    retry_delay: int = 10           # Opóźnienie między próbami
-    timeout: int = 30               # Timeout HTTP
-```
+Agent v2.0 **NIE WYMAGA** edycji kodu. Wszystkie parametry są przekazywane jako argumenty CLI.
 
-### Monitorowane katalogi (przykłady)
+### Zmiana interwału zbierania
+Interwał jest kontrolowany przez aplikację Laravel (domyślnie 120 sekund).
+Można go zmienić przez API lub w konfiguracji hosta w bazie danych.
+
+### Monitorowane katalogi (automatyczne)
 
 #### Windows
-```python
-MONITORED_DIRECTORIES = [
-    "C:\\",                    # Katalog główny
-    "C:\\Windows\\System32",   # System Windows
-    "C:\\Program Files",       # Aplikacje
-    "C:\\Users\\Public"        # Katalog użytkowników
-]
-```
+Agent automatycznie wykrywa dyski systemowe (C:, D:, E:, itp.)
 
 #### Linux
-```python
-MONITORED_DIRECTORIES = [
-    "/",                       # Root filesystem
-    "/var/log",               # Logi systemowe
-    "/tmp",                   # Pliki tymczasowe
-    "/home",                  # Katalogi użytkowników
-    "/var/www"                # Serwer web (opcjonalnie)
-]
+Agent pobiera listę katalogów z API Laravel lub używa domyślnych:
+```
+/root       # Katalog root
+/var        # Pliki systemowe
+/tmp        # Pliki tymczasowe
+/home       # Katalogi użytkowników
+/usr        # Programy systemowe
 ```
 
 ## 📊 Zbierane Metryki
@@ -173,6 +175,36 @@ MONITORED_DIRECTORIES = [
    d. Wysyłanie heartbeat (POST /api/agent/heartbeat/{host_id})
    e. Oczekiwanie (COLLECTION_INTERVAL sekund)
 6. Obsługa błędów i retry
+```
+
+## 🧪 Sprawdzenie działania
+
+### 1. Sprawdź czy aplikacja Laravel działa
+```bash
+# Aplikacja musi działać na 0.0.0.0:8001 (nie na 127.0.0.1!)
+curl http://localhost:8001/api/public/health
+# Powinno zwrócić: {"status":"ok","service":"ZenMon API"}
+```
+
+### 2. Sprawdź health check agenta (po uruchomieniu)
+```bash
+# Windows agent (lokalny)
+curl http://127.0.0.1:8080/health
+
+# Docker agents
+curl http://172.19.0.2:8080/health  # Ubuntu
+curl http://172.19.0.3:8080/health  # Alpine
+curl http://172.19.0.4:8080/health  # Rocky
+```
+
+### 3. Sprawdź czy metryki są zapisywane
+```sql
+-- W DBeaver sprawdź najnowsze metryki
+SELECT m.host_id, mt.metric_name, m.value, m.created_at 
+FROM metrics m
+JOIN metric_types mt ON m.metric_type_id = mt.metric_type_id
+ORDER BY m.created_at DESC 
+LIMIT 20;
 ```
 
 ## 🧪 Testowanie z Kontenerami Docker
@@ -231,22 +263,21 @@ docker-compose -f docker-compose.test.yml ps
 ## 🔧 Rozwiązywanie Problemów
 
 ### Problem: Agent nie może się połączyć z API
-```bash
-# Sprawdź dostępność API
-curl http://localhost:8001/api/public/health
+**Rozwiązanie**: 
+1. Sprawdź czy Laravel działa na `0.0.0.0:8001` (nie na `127.0.0.1:8001`)
+2. Sprawdź firewall/antywirus
+3. Sprawdź logi agenta: `tail -f logs/zenmon_agent.log`
 
-# Sprawdź logi agenta
-tail -f zenmon_agent.log
-
-# Sprawdź konfigurację sieci
-ping localhost
+### Problem: "Host ID not found"
+**Rozwiązanie**: Sprawdź w bazie czy host o danym ID istnieje:
+```sql
+SELECT * FROM hosts WHERE host_id = 1;
 ```
 
-### Problem: Błędy uwierzytelniania
-```python
-# Sprawdź konfigurację w kodzie agenta
-API_URL = "http://localhost:8001/api"  # Poprawny URL?
-# Sprawdź czy użytkownik istnieje w bazie Laravel
+### Problem: "Authentication failed"
+**Rozwiązanie**: Sprawdź czy użytkownik `zenmon_agent` istnieje:
+```sql
+SELECT * FROM users WHERE login = 'zenmon_agent';
 ```
 
 ### Problem: Agent nie zbiera metryk
@@ -256,12 +287,15 @@ API_URL = "http://localhost:8001/api"  # Poprawny URL?
 python3 -c "import psutil; print(psutil.cpu_percent())"
 ```
 
+### Problem: "Connection refused" z Dockera
+**Rozwiązanie**: Sprawdź czy aplikacja Laravel działa na `0.0.0.0:8001`, nie na `localhost:8001`
+
 ## 🚀 Uruchomienie jako Usługa
 
 ### Windows (Service)
 ```powershell
 # Użyj NSSM (Non-Sucking Service Manager)
-nssm install ZenMonAgent "python" "C:\path\to\zenmon-agent-python-v2.0.py"
+nssm install ZenMonAgent "python" "C:\path\to\zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123"
 nssm start ZenMonAgent
 ```
 
@@ -276,7 +310,7 @@ After=network.target
 Type=simple
 User=zenmon
 WorkingDirectory=/opt/zenmon_agent
-ExecStart=/usr/bin/python3 /opt/zenmon_agent/zenmon-agent-python-v2.0.py
+ExecStart=/usr/bin/python3 /opt/zenmon_agent/zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123
 Restart=always
 
 [Install]
@@ -352,10 +386,11 @@ def example_method(param1: str, param2: int = 0) -> str:
 ## 📞 Wsparcie
 
 W przypadku problemów:
-1. Sprawdź logi: `zenmon_agent.log`
+1. Sprawdź logi: `logs/zenmon_agent.log`
 2. Sprawdź połączenie: `curl API_URL/public/health`
-3. Sprawdź konfigurację sieci
-4. Przetestuj w kontenerze Docker
+3. Sprawdź czy Host ID istnieje w bazie
+4. Sprawdź czy użytkownik `zenmon_agent` istnieje
+5. Przetestuj w kontenerze Docker
 
 ---
 
