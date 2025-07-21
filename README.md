@@ -51,43 +51,76 @@ zenmon_agent_python/
 - **Python 3.8+**
 - **pip** (menedżer pakietów Python)
 - **PowerShell** (Windows) lub Terminal (Linux/macOS)
-- **Działająca aplikacja ZenMon Laravel**
+- **Działająca aplikacja ZenMon Laravel** (instrukcja: [zenmon-laravel README](https://github.com/ChuckRipper/zenmon-laravel))
 
 ### 1. Klonowanie repozytorium
 ```bash
+# Identyczne dla wszystkich terminali
 git clone https://github.com/ChuckRipper/zenmon_agent_python.git
 cd zenmon_agent_python
 ```
 
 ### 2. Instalacja zależności Python
-```bash
-# Windows PowerShell
+
+#### PowerShell (Windows):
+```powershell
+# Instalacja pakietów
 pip install psutil requests
 
-# Linux/macOS
+# Sprawdź wersje
+python --version
+pip --version
+```
+
+#### Bash/Zsh/Ksh (Linux/macOS):
+```bash
+# Instalacja pakietów
 pip3 install psutil requests
+
+# Sprawdź wersje
+python3 --version
+pip3 --version
 ```
 
 **Uwaga**: Projekt nie zawiera pliku `requirements.txt` - instaluj zależności bezpośrednio jak powyżej.
 
 ### 3. Sprawdzenie Host ID w bazie danych
 
-Przed uruchomieniem agenta sprawdź dostępne Host ID w bazie:
+Przed uruchomieniem agenta sprawdź dostępne Host ID w bazie danych ZenMon:
 
 ```sql
 -- Sprawdź dostępne hosty w DBeaver/MySQL Workbench
 SELECT host_id, host_name, ip_address, operating_system 
 FROM hosts 
+WHERE is_active = 1
 ORDER BY host_id;
 ```
 
-**Typowe Host ID:**
-- `1` - Lokalny Windows (127.0.0.1)
+**Typowe Host ID z seedera:**
+- `1` - Lokalny host (127.0.0.1) - Windows/Linux automatycznie wykryty
 - `2` - Ubuntu container (172.19.0.2)
 - `3` - Alpine container (172.19.0.3)  
 - `4` - Rocky container (172.19.0.4)
 
-### 4. Uruchomienie agenta
+### 4. Sprawdź czy aplikacja Laravel działa
+
+**WAŻNE**: Aplikacja Laravel musi działać na `0.0.0.0:8001` (nie na `127.0.0.1:8001`)!
+
+#### PowerShell:
+```powershell
+# Sprawdź health check
+Invoke-RestMethod -Uri "http://localhost:8001/api/public/health"
+# Powinno zwrócić: {"status":"ok","service":"ZenMon API"}
+```
+
+#### Bash/Zsh/Ksh:
+```bash
+# Sprawdź health check
+curl http://localhost:8001/api/public/health
+# Powinno zwrócić: {"status":"ok","service":"ZenMon API"}
+```
+
+### 5. Uruchomienie agenta
 
 **Składnia argumentów:**
 ```
@@ -95,27 +128,33 @@ python zenmon-agent-python-v2.0.py <API_URL> <HOST_ID> <LOGIN> <PASSWORD>
 ```
 
 **Gdzie:**
-- `API_URL`: URL aplikacji Laravel (np. http://localhost:8001/api)
+- `API_URL`: URL aplikacji Laravel (http://localhost:8001/api)
 - `HOST_ID`: ID hosta z tabeli `hosts` w bazie danych
 - `LOGIN`: zenmon_agent (konto agenta)
 - `PASSWORD`: zenmon_agent123 (hasło agenta)
 
-#### Windows (PowerShell)
+#### PowerShell (Windows):
 ```powershell
 # Przejdź do katalogu projektu
 cd zenmon_agent_python
 
-# Uruchom agenta z 4 argumentami (Host ID = 1 dla Windows)
+# Uruchom agenta z 4 argumentami (Host ID = 1 dla lokalnego Windows)
 python zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123
+
+# W tle (PowerShell Job)
+Start-Job -ScriptBlock { python zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123 }
 ```
 
-#### Linux/macOS
+#### Bash/Zsh/Ksh (Linux/macOS):
 ```bash
 # Uruchom agenta z 4 argumentami
 python3 zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123
 
 # Lub jako daemon (w tle)
 nohup python3 zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123 &
+
+# Sprawdź proces w tle
+ps aux | grep zenmon
 ```
 
 ## ⚙️ Konfiguracja
@@ -180,13 +219,33 @@ Agent pobiera listę katalogów z API Laravel lub używa domyślnych:
 ## 🧪 Sprawdzenie działania
 
 ### 1. Sprawdź czy aplikacja Laravel działa
+
+#### PowerShell:
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8001/api/public/health"
+# Powinno zwrócić: {"status":"ok","service":"ZenMon API"}
+```
+
+#### Bash/Zsh/Ksh:
 ```bash
-# Aplikacja musi działać na 0.0.0.0:8001 (nie na 127.0.0.1!)
 curl http://localhost:8001/api/public/health
 # Powinno zwrócić: {"status":"ok","service":"ZenMon API"}
 ```
 
 ### 2. Sprawdź health check agenta (po uruchomieniu)
+
+#### PowerShell:
+```powershell
+# Windows agent (lokalny)
+Invoke-RestMethod -Uri "http://127.0.0.1:8080/health"
+
+# Docker agents
+Invoke-RestMethod -Uri "http://172.19.0.2:8080/health"  # Ubuntu
+Invoke-RestMethod -Uri "http://172.19.0.3:8080/health"  # Alpine
+Invoke-RestMethod -Uri "http://172.19.0.4:8080/health"  # Rocky
+```
+
+#### Bash/Zsh/Ksh:
 ```bash
 # Windows agent (lokalny)
 curl http://127.0.0.1:8080/health
@@ -200,10 +259,10 @@ curl http://172.19.0.4:8080/health  # Rocky
 ### 3. Sprawdź czy metryki są zapisywane
 ```sql
 -- W DBeaver sprawdź najnowsze metryki
-SELECT m.host_id, mt.metric_name, m.value, m.created_at 
+SELECT m.host_id, mt.metric_name, m.value, m.timestamp 
 FROM metrics m
 JOIN metric_types mt ON m.metric_type_id = mt.metric_type_id
-ORDER BY m.created_at DESC 
+ORDER BY m.timestamp DESC 
 LIMIT 20;
 ```
 
@@ -213,7 +272,7 @@ Agent można przetestować na różnych dystrybucjach Linux używając kontener�
 
 ### Uruchomienie środowisk testowych
 ```bash
-# Wszystkie kontenery testowe
+# Identyczne dla wszystkich terminali
 docker-compose -f docker-compose.test.yml up -d
 
 # Tylko Ubuntu
@@ -228,7 +287,7 @@ docker-compose -f docker-compose.test.yml up alpine-agent
 
 ### Testowanie w kontenerach
 ```bash
-# Wejście do kontenera Ubuntu
+# Identyczne dla wszystkich terminali
 docker exec -it zenmon_ubuntu_agent bash
 
 # Sprawdzenie logów
@@ -243,6 +302,7 @@ docker-compose -f docker-compose.test.yml ps
 ### Lokalizacja logów
 - **Windows**: `zenmon_agent.log` (katalog agenta)
 - **Linux**: `zenmon_agent.log` lub `/var/log/zenmon_agent.log`
+- **Docker**: Logi supervisor + aplikacji w kontenerze
 
 ### Poziomy logowania
 - **DEBUG** - szczegółowe informacje diagnostyczne
@@ -250,92 +310,243 @@ docker-compose -f docker-compose.test.yml ps
 - **WARNING** - ostrzeżenia (problemy z komunikacją)
 - **ERROR** - błędy krytyczne
 
+### Przeglądanie logów
+
+#### PowerShell:
+```powershell
+# Tail logów agenta
+Get-Content zenmon_agent.log -Wait
+
+# Logi kontenerów Docker
+docker-compose -f docker-compose.test.yml logs -f ubuntu-agent
+```
+
+#### Bash/Zsh/Ksh:
+```bash
+# Tail logów agenta
+tail -f zenmon_agent.log
+
+# Logi kontenerów Docker
+docker-compose -f docker-compose.test.yml logs -f ubuntu-agent
+```
+
 ### Przykłady logów
 ```
-2025-01-15 10:30:15 - ZenMonAgent - INFO - Agent started for host ID 1
-2025-01-15 10:30:16 - ZenMonAgent - INFO - System detected: Windows 10
-2025-01-15 10:30:17 - ZenMonAgent - INFO - Authentication successful, token received
-2025-01-15 10:30:18 - ZenMonAgent - INFO - Collected metrics: CPU=25.3%, RAM=64.1%, Disk=45.7%
-2025-01-15 10:30:19 - ZenMonAgent - INFO - Metrics submitted successfully (4 metrics)
-2025-01-15 10:30:20 - ZenMonAgent - INFO - Heartbeat sent successfully
+2025-01-15 10:30:15 - ZenMonAgent - INFO - 🚀 Agent started for host ID 1
+2025-01-15 10:30:16 - ZenMonAgent - INFO - 💻 System detected: Windows 10
+2025-01-15 10:30:17 - ZenMonAgent - INFO - 🔐 Authentication successful, token received
+2025-01-15 10:30:18 - ZenMonAgent - INFO - 📊 Collected metrics: CPU=25.3%, RAM=64.1%, Disk=45.7%
+2025-01-15 10:30:19 - ZenMonAgent - INFO - ✅ Metrics submitted successfully (4 metrics)
+2025-01-15 10:30:20 - ZenMonAgent - INFO - 💗 Heartbeat sent successfully
 ```
 
 ## 🔧 Rozwiązywanie Problemów
 
 ### Problem: Agent nie może się połączyć z API
-**Rozwiązanie**: 
-1. Sprawdź czy Laravel działa na `0.0.0.0:8001` (nie na `127.0.0.1:8001`)
-2. Sprawdź firewall/antywirus
-3. Sprawdź logi agenta: `tail -f logs/zenmon_agent.log`
+
+#### PowerShell:
+```powershell
+# 1. Sprawdź czy Laravel działa na 0.0.0.0:8001
+php artisan serve --host=0.0.0.0 --port=8001
+
+# 2. Sprawdź firewall
+Get-NetFirewallProfile
+
+# 3. Sprawdź logi agenta
+Get-Content zenmon_agent.log -Wait
+```
+
+#### Bash/Zsh/Ksh:
+```bash
+# 1. Sprawdź czy Laravel działa na 0.0.0.0:8001  
+php artisan serve --host=0.0.0.0 --port=8001
+
+# 2. Sprawdź firewall (Linux)
+sudo ufw status
+sudo ufw allow 8001
+
+# 3. Sprawdź logi agenta
+tail -f zenmon_agent.log
+```
 
 ### Problem: "Host ID not found"
 **Rozwiązanie**: Sprawdź w bazie czy host o danym ID istnieje:
 ```sql
-SELECT * FROM hosts WHERE host_id = 1;
+SELECT * FROM hosts WHERE host_id = 1 AND is_active = 1;
 ```
 
 ### Problem: "Authentication failed"
 **Rozwiązanie**: Sprawdź czy użytkownik `zenmon_agent` istnieje:
 ```sql
-SELECT * FROM users WHERE login = 'zenmon_agent';
+SELECT * FROM users WHERE login = 'zenmon_agent' AND is_active = 1;
 ```
 
 ### Problem: Agent nie zbiera metryk
+
+#### PowerShell:
+```powershell
+# Sprawdź czy psutil działa
+python -c "import psutil; print(f'CPU: {psutil.cpu_percent()}%')"
+
+# Sprawdź uprawnienia (Windows)
+whoami /priv
+```
+
+#### Bash/Zsh/Ksh:
 ```bash
-# Windows - sprawdź uprawnienia
-# Linux - sprawdź czy psutil działa
-python3 -c "import psutil; print(psutil.cpu_percent())"
+# Sprawdź czy psutil działa
+python3 -c "import psutil; print(f'CPU: {psutil.cpu_percent()}%')"
+
+# Sprawdź uprawnienia (Linux)
+id
 ```
 
 ### Problem: "Connection refused" z Dockera
 **Rozwiązanie**: Sprawdź czy aplikacja Laravel działa na `0.0.0.0:8001`, nie na `localhost:8001`
+
+### Problem: "ModuleNotFoundError: No module named 'psutil'"
+
+#### PowerShell:
+```powershell
+# Reinstaluj pakiety
+pip uninstall psutil requests
+pip install psutil requests
+
+# Sprawdź instalację
+pip list | Select-String psutil
+```
+
+#### Bash/Zsh/Ksh:
+```bash
+# Reinstaluj pakiety
+pip3 uninstall psutil requests
+pip3 install psutil requests
+
+# Sprawdź instalację
+pip3 list | grep psutil
+```
 
 ## 🚀 Uruchomienie jako Usługa
 
 ### Windows (Service)
 ```powershell
 # Użyj NSSM (Non-Sucking Service Manager)
-nssm install ZenMonAgent "python" "C:\path\to\zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123"
+# Pobierz z: https://nssm.cc/download
+
+# Zainstaluj jako usługę
+nssm install ZenMonAgent python "C:\path\to\zenmon-agent-python-v2.0.py" "http://localhost:8001/api" "1" "zenmon_agent" "zenmon_agent123"
+
+# Skonfiguruj usługę
+nssm set ZenMonAgent AppDirectory "C:\path\to\zenmon_agent_python"
+nssm set ZenMonAgent DisplayName "ZenMon Monitoring Agent"
+nssm set ZenMonAgent Description "ZenMon system monitoring agent"
+
+# Uruchom usługę
 nssm start ZenMonAgent
+
+# Sprawdź status
+Get-Service ZenMonAgent
 ```
 
 ### Linux (systemd)
 ```bash
 # Utwórz plik /etc/systemd/system/zenmon-agent.service
+sudo tee /etc/systemd/system/zenmon-agent.service > /dev/null <<EOF
 [Unit]
-Description=ZenMon Agent
+Description=ZenMon Monitoring Agent
 After=network.target
 
 [Service]
 Type=simple
 User=zenmon
+Group=zenmon
 WorkingDirectory=/opt/zenmon_agent
 ExecStart=/usr/bin/python3 /opt/zenmon_agent/zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123
 Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
+EOF
 
-# Włącz usługę
+# Przeładuj systemd
+sudo systemctl daemon-reload
+
+# Włącz i uruchom usługę
 sudo systemctl enable zenmon-agent
 sudo systemctl start zenmon-agent
+
+# Sprawdź status
+sudo systemctl status zenmon-agent
+
+# Sprawdź logi
+sudo journalctl -u zenmon-agent -f
+```
+
+### macOS (launchd)
+```bash
+# Utwórz plik ~/Library/LaunchAgents/com.zenmon.agent.plist
+cat > ~/Library/LaunchAgents/com.zenmon.agent.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.zenmon.agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/path/to/zenmon-agent-python-v2.0.py</string>
+        <string>http://localhost:8001/api</string>
+        <string>1</string>
+        <string>zenmon_agent</string>
+        <string>zenmon_agent123</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+# Załaduj usługę
+launchctl load ~/Library/LaunchAgents/com.zenmon.agent.plist
+
+# Sprawdź status
+launchctl list | grep zenmon
 ```
 
 ## 🔒 Bezpieczeństwo
 
 - **Token Authentication** - Bearer token z API Laravel
-- **HTTPS** - użyj HTTPS w produkcji
+- **HTTPS** - użyj HTTPS w produkcji (`https://your-domain.com/api`)
 - **Uprawnienia** - uruchom agenta z ograniczonymi uprawnieniami
 - **Firewall** - otwórz tylko potrzebne porty (8001 HTTP/HTTPS)
+- **Szyfrowanie** - token przechowywany w pamięci (nie na dysku)
 
 ## 📈 Monitoring Agenta
 
-### Sprawdzenie statusu
-```python
-# Via API ZenMon
-GET /api/hosts/{host_id}/status
+### Sprawdzenie statusu przez API
+```bash
+# Sprawdź status hosta
+curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:8001/api/hosts/1/status
 
-# Via logi
+# Sprawdź ostatnie metryki
+curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:8001/api/hosts/1/metrics/latest
+```
+
+### Monitoring przez logi
+
+#### PowerShell:
+```powershell
+# Sprawdź ostatnie heartbeats
+Get-Content zenmon_agent.log | Select-String "Heartbeat sent" | Select-Object -Last 5
+```
+
+#### Bash/Zsh/Ksh:
+```bash
+# Sprawdź ostatnie heartbeats
 tail -f zenmon_agent.log | grep "Heartbeat sent"
 ```
 
@@ -348,53 +559,94 @@ tail -f zenmon_agent.log | grep "Heartbeat sent"
 ## 🤝 Rozwój
 
 ### Dodanie nowej metryki
-1. Dodaj funkcję zbierającą metrykę
+1. Dodaj funkcję zbierającą metrykę w sekcji `#region Methods`
 2. Zaktualizuj `collect_system_metrics()`
 3. Przetestuj z różnymi systemami operacyjnymi
-4. Dodaj obsługę błędów
+4. Dodaj obsługę błędów i logging
 
 ### Konwencje kodu Python
 ```python
 # Regiony (jak w C#)
 #region Fields
-# zmienne globalne
+# zmienne globalne i konfiguracja
 #endregion
 
 #region Classes  
-# definicje klas
+# definicje klas (AgentConfig, MetricCollector, etc.)
 #endregion
 
 #region Methods
-# funkcje
+# funkcje główne i pomocnicze
 #endregion
 
-# Dokumentacja metod
+# Dokumentacja metod (zgodnie z Google Style)
 def example_method(param1: str, param2: int = 0) -> str:
     """
-    Przykładowa metoda
+    Przykładowa metoda zgodna z konwencjami ZenMon
     
     Args:
-        param1: Pierwszy parametr
-        param2: Drugi parametr (domyślnie 0)
+        param1: Pierwszy parametr (opis)
+        param2: Drugi parametr z wartością domyślną
         
     Returns:
-        Wynik operacji
+        Wynik operacji jako string
+        
+    Raises:
+        ValueError: Gdy param1 jest pusty
     """
+    if not param1:
+        raise ValueError("param1 cannot be empty")
+    
     return f"Result: {param1} + {param2}"
+```
+
+### Testowanie nowych funkcji
+```bash
+# Uruchom w trybie debug
+python zenmon-agent-python-v2.0.py http://localhost:8001/api 1 zenmon_agent zenmon_agent123 --debug
+
+# Test jednostkowy (jeśli dodane)
+python -m pytest tests/
+
+# Test integracji z kontenerami
+docker-compose -f docker-compose.test.yml up --build
 ```
 
 ## 📞 Wsparcie
 
-W przypadku problemów:
-1. Sprawdź logi: `logs/zenmon_agent.log`
-2. Sprawdź połączenie: `curl API_URL/public/health`
-3. Sprawdź czy Host ID istnieje w bazie
-4. Sprawdź czy użytkownik `zenmon_agent` istnieje
-5. Przetestuj w kontenerze Docker
+W przypadku problemów sprawdź w kolejności:
+
+1. **Logi agenta**: `zenmon_agent.log`
+2. **Połączenie z API**: `curl http://localhost:8001/api/public/health`
+3. **Host ID w bazie**: `SELECT * FROM hosts WHERE host_id = X;`
+4. **Użytkownik agenta**: `SELECT * FROM users WHERE login = 'zenmon_agent';`
+5. **Logi Laravel**: `storage/logs/laravel.log`
+6. **Test w kontenerze**: Docker environment dla eliminacji problemów środowiska
+
+### Przydatne komendy diagnostyczne
+
+#### PowerShell:
+```powershell
+# Sprawdź proces agenta
+Get-Process python | Where-Object {$_.CommandLine -like "*zenmon*"}
+
+# Sprawdź połączenia sieciowe
+netstat -an | Select-String "8001\|8080"
+```
+
+#### Bash/Zsh/Ksh:
+```bash
+# Sprawdź proces agenta
+ps aux | grep zenmon
+
+# Sprawdź połączenia sieciowe
+netstat -tulpn | grep -E "8001|8080"
+```
 
 ---
 
-**Autor**: Cezary Kalinowski i Przemysław Jancewicz
+**Autorzy**: Cezary Kalinowski i Przemysław Jancewicz  
 **Wersja**: 2.0  
 **Python**: 3.8+  
-**Kompatybilność**: Windows, Linux, macOS
+**Kompatybilność**: Windows, Linux, macOS  
+**Integracja**: [ZenMon Laravel API](https://github.com/ChuckRipper/zenmon-laravel)
